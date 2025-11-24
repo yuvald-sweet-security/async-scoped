@@ -1,13 +1,16 @@
 [package]
-name = "async-scoped"
+name = "sweet-async-scoped"
 version = "0.9.0"
-authors = ["Rajsekar Manokaran <rajsekar@gmail.com>"]
+authors = [
+    "Sweet Security <admin@sweet.security>",
+    "Rajsekar Manokaran <rajsekar@gmail.com>",
+]
 edition = "2024"
 
-documentation = "https://docs.rs/async-scoped"
+documentation = "https://docs.rs/sweet-async-scoped"
 description = "Spawn scoped (non 'static) asynchronous futures for async_std and tokio runtimes"
-homepage = "https://github.com/rmanoka/async-scoped"
-repository = "https://github.com/rmanoka/async-scoped"
+homepage = "https://github.com/yuvald-sweet-security/async-scoped"
+repository = "https://github.com/yuvald-sweet-security/async-scoped"
 readme = "README.md"
 
 categories = ["asynchronous", "concurrency"]
@@ -16,6 +19,9 @@ license = "Apache-2.0/MIT"
 
 [package.metadata.docs.rs]
 features = ["use-async-std", "use-tokio"]
+
+[lib]
+name = "async_scoped"
 
 [features]
 # Verify package.metadata.docs.rs when updating
@@ -29,7 +35,11 @@ default = ["use-tokio"]
 async-std = { version = "1.13.2", optional = true }
 futures = "0.3.31"
 pin-project = "1.1"
-tokio = { version = "1.48", features = ["rt-multi-thread", "macros", "sync"], optional = true }
+tokio = { version = "1.48", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+], optional = true }
 
 [dev-dependencies]
 async-std = { version = "1.13.2", features = ["attributes"] }
