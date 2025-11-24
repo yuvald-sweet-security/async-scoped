@@ -1,6 +1,8 @@
 //! There you can find traits that are necessary for implementing executor.
 //! They are mostly unsafe, as we can't ensure the executor allows intended manipulations
 //! without causing UB.
+use std::time::Duration;
+
 use futures::Future;
 
 /// # Safety
@@ -23,6 +25,7 @@ pub unsafe trait FuncSpawner<T> {
 /// See main crate documentation
 pub unsafe trait Blocker {
     fn block_on<T, F: Future<Output = T>>(&self, f: F) -> T;
+    fn sleep(d: Duration) -> impl Future<Output = ()> + Send;
 }
 
 #[cfg(feature = "use-async-std")]
@@ -52,6 +55,10 @@ pub mod use_async_std {
     unsafe impl Blocker for AsyncStdSpawner {
         fn block_on<T, F: Future<Output = T>>(&self, f: F) -> T {
             block_on(f)
+        }
+
+        fn sleep(d: Duration) -> impl Future<Output = ()> + Send {
+            async_std::task::sleep(d)
         }
     }
 }
@@ -152,6 +159,10 @@ pub mod use_tokio {
                 // see `block_on` docs for more info.
                 TokioRuntime::Owned(runtime) => runtime.block_on(f),
             })
+        }
+
+        fn sleep(d: Duration) -> impl Future<Output = ()> + Send {
+            tokio::time::sleep(d)
         }
     }
 }

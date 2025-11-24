@@ -29,7 +29,7 @@ fn main() {
             // runtime: https://docs.rs/async-std/latest/async_std/index.html#runtime-configuration
             // ASYNC_STD_THREAD_COUNT environment variable must be used to match the Tokio benchmark
             use async_scoped::AsyncStdScope;
-            let (_, r) = AsyncStdScope::scope_and_block(spawn_and_collect);
+            let (_, r) = AsyncStdScope::scope_and_block_forever(spawn_and_collect);
 
             r
         }
@@ -41,7 +41,7 @@ fn main() {
                 .build()
                 .unwrap()
                 .block_on(async move {
-                    let (_, r) = TokioScope::scope_and_block(spawn_and_collect);
+                    let (_, r) = TokioScope::scope_and_block_forever(spawn_and_collect);
 
                     r
                 })

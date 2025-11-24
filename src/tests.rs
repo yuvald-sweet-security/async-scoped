@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 macro_rules! test_fixtures {
     ($($item:item)*) => {
         $(
@@ -98,7 +100,7 @@ test_fixtures! {
         let not_copy = String::from("hello world!");
         let not_copy_ref = &not_copy;
 
-        let ((), vals) = Scope::scope_and_block(async |s| {
+        let ((), vals) = Scope::scope_and_block_forever(async |s| {
             for _ in 0..10 {
                 let proc = || async {
                     assert_eq!(not_copy_ref, "hello world!");
@@ -123,7 +125,7 @@ test_fixtures! {
                 future::pending::<()>(),
             ).await.is_err()
         }
-        let ((), items) = Scope::scope_and_block(async |scope| {
+        let ((), items) = Scope::scope_and_block_forever(async |scope| {
             scope.spawn_cancellable(proc(), || false);
         });
         assert_eq!(items.len(), 1);
@@ -145,7 +147,7 @@ test_fixtures! {
                 future::pending::<()>(),
             ).await.is_err()
         }
-        let ((), items) = Scope::scope_and_block(async |scope| {
+        let ((), items) = Scope::scope_and_block_forever(async |scope| {
             scope.spawn_cancellable(proc(), || false);
             scope.cancel();
         });
@@ -268,7 +270,7 @@ test_fixtures! {
             eprintln!("nth({})", n);
             async move {
                 let mut result: usize = 0;
-                Scope::scope_and_block(async |scope| {
+                Scope::scope_and_block_forever(async |scope| {
                     if n > 0 {
                         scope.spawn(async {
                             let rec = { nth(n-1).boxed() }.await;
@@ -288,7 +290,7 @@ test_fixtures! {
         use std::future::pending;
         const N: u64 = 10;
 
-        let (_, r) = Scope::scope_and_block(async |scope| {
+        let (_, r) = Scope::scope_and_block_forever(async |scope| {
             for i in 0..N {
                 scope.spawn(async move {
                     let _ = async_std::future::timeout(
@@ -305,6 +307,14 @@ test_fixtures! {
 
         assert_eq!((0..N).collect::<Vec<_>>(), r);
     }
+
+    #[ignore = "Aborts the process as part of expected behavior"]
+    async fn test_scope_and_block_timeout() {
+        Scope::scope_and_block(async |s| {
+            s.spawn_blocking(|| std::thread::sleep(Duration::from_secs(1)));
+        }, Duration::from_secs(0));
+        panic!("scope_and_block did not abort the process as expected");
+    }
 }
 
 #[cfg(feature = "use-tokio")]
@@ -319,7 +329,7 @@ async fn test_async_deadlock_tokio() {
         if n == 0 {
             0
         } else {
-            TokioScope::scope_and_block(async |scope| {
+            TokioScope::scope_and_block_forever(async |scope| {
                 scope.spawn(async { nth(n - 1) }.boxed());
             })
             .1[0]
@@ -354,6 +364,10 @@ fn test_empty_scope() {
     unsafe impl Blocker for PanickingSpawner {
         fn block_on<T, F: Future<Output = T>>(&self, _f: F) -> T {
             panic!("block_on should never be called.");
+        }
+
+        async fn sleep(_d: std::time::Duration) {
+            panic!("sleep should never be called.");
         }
     }
 
