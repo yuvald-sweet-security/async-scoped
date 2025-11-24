@@ -26,6 +26,7 @@ tokio = {version = "1.0", features = ["rt-multi-thread", "macros", "sync"], opti
 # Verify package.metadata.docs.rs when updating
 use-async-std = ["async-std"]
 use-tokio = ["tokio"]
+default = ["use-tokio"]
 
 
 [dev-dependencies]
