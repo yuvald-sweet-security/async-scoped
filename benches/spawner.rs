@@ -1,6 +1,6 @@
 use async_scoped::{
-    spawner::{Blocker, Spawner},
     Scope,
+    spawner::{Blocker, Spawner},
 };
 use futures::future::pending;
 use std::hint::black_box;

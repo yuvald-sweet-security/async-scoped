@@ -1,5 +1,5 @@
-use crate::spawner::*;
 use crate::Scope;
+use crate::spawner::*;
 
 impl<'a, T, Sp: Spawner<T> + Blocker + Default> Scope<'a, T, Sp> {
     /// Creates a `Scope` to spawn non-'static futures. The
@@ -22,13 +22,14 @@ impl<'a, T, Sp: Spawner<T> + Blocker + Default> Scope<'a, T, Sp> {
     /// The returned stream is expected to be run to completion
     /// before being forgotten. Dropping it is okay, but blocks
     /// the current thread until all spawned futures complete.
+    #[allow(clippy::self_named_constructors)]
     pub unsafe fn scope<R, F>(f: F) -> (Self, R)
     where
         T: Send + 'static,
         Sp: Spawner<T> + Blocker,
         F: FnOnce(&mut Scope<'a, T, Sp>) -> R,
     {
-        let mut scope = Scope::create(Default::default());
+        let mut scope = unsafe { Scope::create(Default::default()) };
         let op = f(&mut scope);
         (scope, op)
     }
@@ -87,7 +88,7 @@ impl<'a, T, Sp: Spawner<T> + Blocker + Default> Scope<'a, T, Sp> {
         T: Send + 'static,
         F: FnOnce(&mut Scope<'a, T, Sp>) -> R,
     {
-        let (mut stream, block_output) = Self::scope(f);
+        let (mut stream, block_output) = unsafe { Self::scope(f) };
         let proc_outputs = stream.collect().await;
         (block_output, proc_outputs)
     }

@@ -71,12 +71,12 @@
 //!
 //! Some notes on default implementations:
 //! 1. [`AsyncScope`] may run into a dead-lock if used in
-//! deep recursions (depth > #num-cores / 2).
+//!    deep recursions (depth > #num-cores / 2).
 //!
 //! 2. [`TokioScope::scope_and_block`][Scope::scope_and_block] may only be used
-//! within a multi-threaded. An incompletely driven
-//! `TokioScope` also needs a multi-threaded context to be
-//! dropped.
+//!    within a multi-threaded. An incompletely driven
+//!    `TokioScope` also needs a multi-threaded context to be
+//!    dropped.
 //!
 //! ## Cancellation
 //!

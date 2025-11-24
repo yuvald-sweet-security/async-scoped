@@ -169,7 +169,7 @@ test_fixtures! {
         });
         assert_eq!(items.len(), 1);
         for i in items {
-            assert_eq!(future_value(i), true);
+            assert!(future_value(i));
         }
     }
 
@@ -192,7 +192,7 @@ test_fixtures! {
         });
         assert_eq!(items.len(), 1);
         for i in items {
-            assert_eq!(future_value(i), false);
+            assert!(!future_value(i));
         }
     }
 
@@ -344,7 +344,7 @@ test_fixtures! {
             future_value(v)
         }).collect::<Vec<_>>();
 
-        assert_eq!((0..N).into_iter().collect::<Vec<_>>(), r);
+        assert_eq!((0..N).collect::<Vec<_>>(), r);
     }
 }
 
@@ -355,31 +355,24 @@ test_fixtures! {
 async fn test_async_deadlock_tokio() {
     use crate::TokioScope;
     use futures::FutureExt;
-    use std::future::Future;
-    fn nth(n: usize) -> impl Future<Output = usize> + Send {
-        // eprintln!("nth({})", n);
-
-        async move {
-            let result = if n == 0 {
-                0
-            } else {
-                TokioScope::scope_and_block(|scope| {
-                    scope.spawn(nth(n - 1).boxed());
-                })
-                .1[0]
-                    .as_ref()
-                    .unwrap()
-                    + 1
-            };
-
-            // eprintln!("nth({})={}", n, result);
-            result
+    fn nth(n: usize) -> usize {
+        // eprintln!("nth({})={}", n, result);
+        if n == 0 {
+            0
+        } else {
+            TokioScope::scope_and_block(|scope| {
+                scope.spawn(async { nth(n - 1) }.boxed());
+            })
+            .1[0]
+                .as_ref()
+                .unwrap()
+                + 1
         }
     }
     // Tokio has a block_in_place functionality, that lets
     // us recurse without deadlocks.
     let input = 200;
-    assert_eq!(nth(input).await, input);
+    assert_eq!(async { nth(input) }.await, input);
 }
 
 /// Dropping an empty scope should be a no-op.

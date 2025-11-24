@@ -1,3 +1,4 @@
+#[allow(unused_macros)]
 macro_rules! cfg_async_std {
     ($($item:item)*) => {
         $(
@@ -17,6 +18,7 @@ macro_rules! cfg_async_std_or_else {
     }
 }
 
+#[allow(unused_macros)]
 macro_rules! cfg_tokio {
     ($($item:item)*) => {
         $(
@@ -26,6 +28,7 @@ macro_rules! cfg_tokio {
     }
 }
 
+#[allow(unused_macros)]
 macro_rules! cfg_any_spawner {
     ($($item:item)*) => {
         $(

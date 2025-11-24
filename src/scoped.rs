@@ -35,6 +35,7 @@ pub struct Scope<'a, T, Sp: Spawner<T> + Blocker> {
 impl<'a, T: Send + 'static, Sp: Spawner<T> + Blocker> Scope<'a, T, Sp> {
     /// Create a Scope object.
     ///
+    /// # Safety
     /// This function is unsafe as `futs` may hold futures
     /// which have to be manually driven to completion.
     pub unsafe fn create(spawner: Sp) -> Self {
@@ -58,9 +59,10 @@ impl<'a, T: Send + 'static, Sp: Spawner<T> + Blocker> Scope<'a, T, Sp> {
     /// future is expected to be driven to completion before 'a expires.
     pub fn spawn<F: Future<Output = T> + Send + 'a>(&mut self, f: F) {
         let handle = self.spawner().spawn(unsafe {
-            std::mem::transmute::<_, Pin<Box<dyn Future<Output = T> + Send>>>(
-                Box::pin(f) as Pin<Box<dyn Future<Output = T>>>
-            )
+            std::mem::transmute::<
+                std::pin::Pin<std::boxed::Box<dyn futures::Future<Output = T>>>,
+                std::pin::Pin<std::boxed::Box<dyn futures::Future<Output = T> + std::marker::Send>>,
+            >(Box::pin(f) as Pin<Box<dyn Future<Output = T>>>)
         });
         self.futs.push_back(handle);
         self.len += 1;
@@ -95,9 +97,10 @@ impl<'a, T: Send + 'static, Sp: Spawner<T> + Blocker> Scope<'a, T, Sp> {
         Sp: FuncSpawner<T, SpawnHandle = <Sp as Spawner<T>>::SpawnHandle>,
     {
         let handle = self.spawner().spawn_func(unsafe {
-            std::mem::transmute::<_, Box<dyn FnOnce() -> T + Send>>(
-                Box::new(f) as Box<dyn FnOnce() -> T + Send>
-            )
+            std::mem::transmute::<
+                std::boxed::Box<dyn std::ops::FnOnce() -> T + std::marker::Send>,
+                std::boxed::Box<dyn std::ops::FnOnce() -> T + std::marker::Send>,
+            >(Box::new(f) as Box<dyn FnOnce() -> T + Send>)
         });
         self.futs.push_back(handle);
         self.len += 1;
@@ -117,6 +120,11 @@ impl<'a, T, Sp: Spawner<T> + Blocker> Scope<'a, T, Sp> {
     #[inline]
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     /// Number of futures remaining in this scope.

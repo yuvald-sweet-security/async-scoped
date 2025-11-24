@@ -3,18 +3,24 @@
 //! without causing UB.
 use futures::Future;
 
+/// # Safety
+/// See main crate documentation
 pub unsafe trait Spawner<T> {
     type FutureOutput;
     type SpawnHandle: Future<Output = Self::FutureOutput> + Send;
     fn spawn<F: Future<Output = T> + Send + 'static>(&self, f: F) -> Self::SpawnHandle;
 }
 
+/// # Safety
+/// See main crate documentation
 pub unsafe trait FuncSpawner<T> {
     type FutureOutput;
     type SpawnHandle: Future<Output = Self::FutureOutput> + Send;
     fn spawn_func<F: FnOnce() -> T + Send + 'static>(&self, f: F) -> Self::SpawnHandle;
 }
 
+/// # Safety
+/// See main crate documentation
 pub unsafe trait Blocker {
     fn block_on<T, F: Future<Output = T>>(&self, f: F) -> T;
 }
@@ -22,7 +28,7 @@ pub unsafe trait Blocker {
 #[cfg(feature = "use-async-std")]
 pub mod use_async_std {
     use super::*;
-    use async_std::task::{block_on, spawn, spawn_blocking, JoinHandle};
+    use async_std::task::{JoinHandle, block_on, spawn, spawn_blocking};
 
     #[derive(Default)]
     pub struct AsyncStdSpawner;
@@ -139,14 +145,13 @@ pub mod use_tokio {
 
     unsafe impl Blocker for TokioSpawner {
         fn block_on<T, F: Future<Output = T>>(&self, f: F) -> T {
-            let result = block_in_place(|| match self.0.as_ref().expect(RUNTIME_INVARIANT_ERR) {
+            block_in_place(|| match self.0.as_ref().expect(RUNTIME_INVARIANT_ERR) {
                 TokioRuntime::ByHandle(handle) => handle.block_on(f),
                 // if runtime is owned, `block_on` must be called directly on it,
                 // not via it's handle. Otherwise, future won't be able to run IO-tasks.
                 // see `block_on` docs for more info.
                 TokioRuntime::Owned(runtime) => runtime.block_on(f),
-            });
-            result
+            })
         }
     }
 }
