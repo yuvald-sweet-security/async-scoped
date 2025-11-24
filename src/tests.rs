@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use futures::{StreamExt, stream::FuturesUnordered};
+
 macro_rules! test_fixtures {
     ($($item:item)*) => {
         $(
@@ -36,14 +38,16 @@ test_fixtures! {
 
         let not_copy = String::from("hello world!");
         let not_copy_ref = &not_copy;
-        let ((), vals) = unsafe { Scope::scope_and_collect(async |s| {
-            s.spawn(static_fut);
+        let vals = unsafe { Scope::scope_and_collect(async |s| {
+            let mut vals = Vec::new();
+            vals.push(s.spawn(static_fut).await);
             for _ in 0..10 {
                 let proc = || async {
                     assert_eq!(not_copy_ref, "hello world!");
                 };
-                s.spawn(proc());
+                vals.push(s.spawn(proc()).await);
             }
+            vals
         })}.await;
         assert_eq!(vals.len(), 11);
 
@@ -85,13 +89,15 @@ test_fixtures! {
         let not_copy = String::from("hello world!");
         let not_copy_ref = &not_copy;
 
-        let (_, vals) = unsafe { Scope::scope_and_collect(async |s| {
+        let vals = unsafe { Scope::scope_and_collect(async |s| {
+            let mut vals = Vec::new();
             for _ in 0..10 {
                 let proc = || async {
                     assert_eq!(not_copy_ref, "hello world!");
                 };
-                s.spawn(proc());
+                vals.push(s.spawn(proc()).await);
             }
+            vals
         }) }.await;
 
         assert_eq!(vals.len(), 10);
@@ -100,13 +106,15 @@ test_fixtures! {
         let not_copy = String::from("hello world!");
         let not_copy_ref = &not_copy;
 
-        let ((), vals) = Scope::scope_and_block_forever(async |s| {
+        let vals = Scope::scope_and_block_forever(async |s| {
+            let mut vals = Vec::new();
             for _ in 0..10 {
                 let proc = || async {
                     assert_eq!(not_copy_ref, "hello world!");
                 };
-                s.spawn(proc());
+                vals.push(s.spawn(proc()).await);
             }
+            vals
         });
 
         assert_eq!(vals.len(), 10);
@@ -125,13 +133,10 @@ test_fixtures! {
                 future::pending::<()>(),
             ).await.is_err()
         }
-        let ((), items) = Scope::scope_and_block_forever(async |scope| {
-            scope.spawn_cancellable(proc(), || false);
+        let item = Scope::scope_and_block_forever(async |scope| {
+            scope.spawn_cancellable(proc(), || false).await
         });
-        assert_eq!(items.len(), 1);
-        for i in items {
-            assert!(future_value(i));
-        }
+        assert!(future_value(item));
     }
 
     // Check that a cancellable future works as the
@@ -147,14 +152,12 @@ test_fixtures! {
                 future::pending::<()>(),
             ).await.is_err()
         }
-        let ((), items) = Scope::scope_and_block_forever(async |scope| {
-            scope.spawn_cancellable(proc(), || false);
+        let item = Scope::scope_and_block_forever(async |scope| {
+            let fut = scope.spawn_cancellable(proc(), || false);
             scope.cancel();
+            fut.await
         });
-        assert_eq!(items.len(), 1);
-        for i in items {
-            assert!(!future_value(i));
-        }
+        assert!(!future_value(item));
     }
 
 
@@ -290,16 +293,18 @@ test_fixtures! {
         use std::future::pending;
         const N: u64 = 10;
 
-        let (_, r) = Scope::scope_and_block_forever(async |scope| {
+        let r = Scope::scope_and_block_forever(async |scope| {
+            let futs = FuturesUnordered::new();
             for i in 0..N {
-                scope.spawn(async move {
+                futs.push(scope.spawn(async move {
                     let _ = async_std::future::timeout(
                         std::time::Duration::from_millis(100 - i),
                         pending::<()>()
                     ).await;
                     i
-                });
+                }));
             }
+            futs.collect::<Vec<_>>().await
         });
         let r = r.into_iter().map(|v| {
             future_value(v)
@@ -330,11 +335,10 @@ async fn test_async_deadlock_tokio() {
             0
         } else {
             TokioScope::scope_and_block_forever(async |scope| {
-                scope.spawn(async { nth(n - 1) }.boxed());
+                scope.spawn(async { nth(n - 1) }.boxed()).await
             })
-            .1[0]
-                .as_ref()
-                .unwrap()
+            .as_ref()
+            .unwrap()
                 + 1
         }
     }

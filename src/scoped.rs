@@ -1,14 +1,33 @@
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, ready};
 
-use futures::future::{AbortHandle, Abortable};
+use futures::channel::oneshot;
+use futures::future::{AbortHandle, Abortable, Remote, RemoteHandle};
 use futures::stream::FuturesOrdered;
-use futures::{Future, Stream};
+use futures::{Future, FutureExt, Stream, StreamExt};
 
 use pin_project::*;
 
 use crate::spawner::*;
+
+#[pin_project]
+pub struct ScopedSpawnHandle<H> {
+    channel: Option<oneshot::Sender<()>>,
+    #[pin]
+    handle: H,
+}
+
+impl<T, H: Future<Output = T>> Future for ScopedSpawnHandle<H> {
+    type Output = T;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+        let p = self.project();
+        let result = ready!(p.handle.poll(cx));
+        let _ = p.channel.take().unwrap().send(());
+        Poll::Ready(result)
+    }
+}
 
 /// A scope to allow controlled spawning of non 'static
 /// futures. Futures can be spawned using `spawn` or
@@ -24,7 +43,7 @@ pub struct Scope<'a, T, Sp: Spawner<T> + Blocker> {
     spawner: Option<Sp>,
     len: usize,
     #[pin]
-    futs: FuturesOrdered<Sp::SpawnHandle>,
+    futs: FuturesOrdered<Remote<Sp::SpawnHandle>>,
     abort_handles: Vec<AbortHandle>,
 
     // Future proof against variance changes
@@ -57,15 +76,20 @@ impl<'a, T: Send + 'static, Sp: Spawner<T> + Blocker> Scope<'a, T, Sp> {
 
     /// Spawn a future with the executor's `task::spawn` functionality. The
     /// future is expected to be driven to completion before 'a expires.
-    pub fn spawn<F: Future<Output = T> + Send + 'a>(&mut self, f: F) {
+    pub fn spawn<F: Future<Output = T> + Send + 'a>(
+        &mut self,
+        f: F,
+    ) -> ScopedSpawnHandle<Sp::FutureOutput> {
         let handle = self.spawner().spawn(unsafe {
             std::mem::transmute::<
                 std::pin::Pin<std::boxed::Box<dyn futures::Future<Output = T>>>,
                 std::pin::Pin<std::boxed::Box<dyn futures::Future<Output = T> + std::marker::Send>>,
             >(Box::pin(f) as Pin<Box<dyn Future<Output = T>>>)
         });
+        let (handle, remote_handle) = handle.remote_handle();
         self.futs.push_back(handle);
         self.len += 1;
+        ScopedSpawnHandle(remote_handle)
     }
 
     /// Spawn a cancellable future with the executor's `task::spawn`
@@ -79,7 +103,7 @@ impl<'a, T: Send + 'static, Sp: Spawner<T> + Blocker> Scope<'a, T, Sp> {
         &mut self,
         f: F,
         default: Fu,
-    ) {
+    ) -> ScopedSpawnHandle<Sp::FutureOutput> {
         let (h, reg) = AbortHandle::new_pair();
         self.abort_handles.push(h);
         let fut = Abortable::new(f, reg);
@@ -92,7 +116,10 @@ impl<'a, T: Send + 'static, Sp: Spawner<T> + Blocker> Scope<'a, T, Sp> {
     /// The future is cancelled if the `Scope` is dropped
     /// pre-maturely. It can also be cancelled by explicitly
     /// calling (and awaiting) the `cancel` method.
-    pub fn spawn_blocking<F: FnOnce() -> T + Send + 'a>(&mut self, f: F)
+    pub fn spawn_blocking<F: FnOnce() -> T + Send + 'a>(
+        &mut self,
+        f: F,
+    ) -> ScopedSpawnHandle<<Sp as Spawner<T>>::FutureOutput>
     where
         Sp: FuncSpawner<T, SpawnHandle = <Sp as Spawner<T>>::SpawnHandle>,
     {
@@ -102,8 +129,10 @@ impl<'a, T: Send + 'static, Sp: Spawner<T> + Blocker> Scope<'a, T, Sp> {
                 std::boxed::Box<dyn std::ops::FnOnce() -> T + std::marker::Send>,
             >(Box::new(f) as Box<dyn FnOnce() -> T + Send>)
         });
+        let (handle, remote_handle) = handle.remote_handle();
         self.futs.push_back(handle);
         self.len += 1;
+        ScopedSpawnHandle(remote_handle)
     }
 }
 
@@ -132,23 +161,10 @@ impl<'a, T, Sp: Spawner<T> + Blocker> Scope<'a, T, Sp> {
     pub fn remaining(&self) -> usize {
         self.futs.len()
     }
-
-    /// A slighly optimized `collect` on the stream. Also
-    /// useful when we can not move out of self.
-    pub async fn collect(&mut self) -> Vec<Sp::FutureOutput> {
-        let mut proc_outputs = Vec::with_capacity(self.remaining());
-
-        use futures::StreamExt;
-        while let Some(item) = self.next().await {
-            proc_outputs.push(item);
-        }
-
-        proc_outputs
-    }
 }
 
 impl<'a, T, Sp: Spawner<T> + Blocker> Stream for Scope<'a, T, Sp> {
-    type Item = Sp::FutureOutput;
+    type Item = ();
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         self.project().futs.poll_next(cx)
@@ -169,7 +185,7 @@ impl<'a, T, Sp: Spawner<T> + Blocker> PinnedDrop for Scope<'a, T, Sp> {
                 .expect("invariant:spawner must be taken only on drop");
             spawner.block_on(async {
                 self.cancel();
-                self.collect().await;
+                self.project().futs.count().await;
             });
         }
     }

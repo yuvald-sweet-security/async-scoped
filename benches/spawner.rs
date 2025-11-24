@@ -22,33 +22,23 @@ async fn spawn_and_collect<'a, Sp: Spawner<usize> + Blocker>(s: &mut Scope<'a, u
 }
 
 fn main() {
-    let r = {
-        #[cfg(all(not(feature = "use-tokio"), feature = "use-async-std"))]
-        {
-            // Async-std runtime does not have a straightforward way to configure multi-threaded
-            // runtime: https://docs.rs/async-std/latest/async_std/index.html#runtime-configuration
-            // ASYNC_STD_THREAD_COUNT environment variable must be used to match the Tokio benchmark
-            use async_scoped::AsyncStdScope;
-            let (_, r) = AsyncStdScope::scope_and_block_forever(spawn_and_collect);
-
-            r
-        }
-        #[cfg(feature = "use-tokio")]
-        {
-            use async_scoped::TokioScope;
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(4)
-                .build()
-                .unwrap()
-                .block_on(async move {
-                    let (_, r) = TokioScope::scope_and_block_forever(spawn_and_collect);
-
-                    r
-                })
-        }
-    };
-
-    r.into_iter().for_each(|v| {
-        let _ = black_box(v);
-    })
+    #[cfg(all(not(feature = "use-tokio"), feature = "use-async-std"))]
+    {
+        // Async-std runtime does not have a straightforward way to configure multi-threaded
+        // runtime: https://docs.rs/async-std/latest/async_std/index.html#runtime-configuration
+        // ASYNC_STD_THREAD_COUNT environment variable must be used to match the Tokio benchmark
+        use async_scoped::AsyncStdScope;
+        AsyncStdScope::scope_and_block_forever(black_box(spawn_and_collect));
+    }
+    #[cfg(feature = "use-tokio")]
+    {
+        use async_scoped::TokioScope;
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .build()
+            .unwrap()
+            .block_on(
+                async move { TokioScope::scope_and_block_forever(black_box(spawn_and_collect)) },
+            )
+    }
 }

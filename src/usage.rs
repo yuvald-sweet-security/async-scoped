@@ -1,3 +1,4 @@
+use futures::StreamExt;
 use pin_project::pin_project;
 use std::io::Write;
 use std::io::stderr;
@@ -62,7 +63,7 @@ impl<'a, T, Sp: Spawner<T> + Blocker + Default> Scope<'a, T, Sp> {
     /// recursively spawned should have the same lifetime as the
     /// top-level scope, or there should not be any spurious
     /// future cancellations within the top level scope.
-    pub fn scope_and_block_forever<R, F>(f: F) -> (R, Vec<Sp::FutureOutput>)
+    pub fn scope_and_block_forever<R, F>(f: F) -> R
     where
         T: Send + 'static,
         Sp: Spawner<T> + Blocker,
@@ -94,7 +95,7 @@ impl<'a, T, Sp: Spawner<T> + Blocker + Default> Scope<'a, T, Sp> {
     /// recursively spawned should have the same lifetime as the
     /// top-level scope, or there should not be any spurious
     /// future cancellations within the top level scope.
-    pub fn scope_and_block<R, F>(f: F, d: Duration) -> (R, Vec<Sp::FutureOutput>)
+    pub fn scope_and_block<R, F>(f: F, d: Duration) -> R
     where
         T: Send + 'static,
         Sp: Spawner<T> + Blocker,
@@ -103,11 +104,11 @@ impl<'a, T, Sp: Spawner<T> + Blocker + Default> Scope<'a, T, Sp> {
         let mut scope = unsafe { Scope::create(Default::default()) };
         let spawner = Sp::default();
         let block_output = spawner.block_on(f(&mut scope));
-        let proc_outputs = spawner.block_on(CollectTimeoutHelper {
+        spawner.block_on(CollectTimeoutHelper {
             timeout: Sp::sleep(d),
-            collect: scope.collect(),
+            collect: scope.count(),
         });
-        (block_output, proc_outputs)
+        block_output
     }
 
     /// An asynchronous function that creates a scope and
@@ -128,14 +129,14 @@ impl<'a, T, Sp: Spawner<T> + Blocker + Default> Scope<'a, T, Sp> {
     /// spawned futures complete.
     ///
     /// [tests-src]: https://github.com/rmanoka/async-scoped/blob/master/src/tests.rs
-    pub async unsafe fn scope_and_collect<R, F>(f: F) -> (R, Vec<Sp::FutureOutput>)
+    pub async unsafe fn scope_and_collect<R, F>(f: F) -> R
     where
         T: Send + 'static,
         F: AsyncFnOnce(&mut Scope<'a, T, Sp>) -> R,
     {
         let mut scope = unsafe { Scope::create(Default::default()) };
         let block_output = f(&mut scope).await;
-        let proc_outputs = scope.collect().await;
-        (block_output, proc_outputs)
+        scope.count().await;
+        block_output
     }
 }
