@@ -2,38 +2,6 @@ use crate::Scope;
 use crate::spawner::*;
 
 impl<'a, T, Sp: Spawner<T> + Blocker + Default> Scope<'a, T, Sp> {
-    /// Creates a `Scope` to spawn non-'static futures. The
-    /// function is called with a block which takes an `&mut
-    /// Scope`. The `spawn` method on this arg. can be used to
-    /// spawn "local" futures.
-    ///
-    /// # Returns
-    ///
-    /// The function returns the created `Scope`, and the return
-    /// value of the block passed to it. The returned stream and
-    /// is expected to be driven completely before being
-    /// forgotten. Dropping this stream causes the stream to be
-    /// driven _while blocking the current thread_. The values
-    /// returned from the stream are the output of the futures
-    /// spawned.
-    ///
-    /// # Safety
-    ///
-    /// The returned stream is expected to be run to completion
-    /// before being forgotten. Dropping it is okay, but blocks
-    /// the current thread until all spawned futures complete.
-    #[allow(clippy::self_named_constructors)]
-    pub unsafe fn scope<R, F>(f: F) -> (Self, R)
-    where
-        T: Send + 'static,
-        Sp: Spawner<T> + Blocker,
-        F: FnOnce(&mut Scope<'a, T, Sp>) -> R,
-    {
-        let mut scope = unsafe { Scope::create(Default::default()) };
-        let op = f(&mut scope);
-        (scope, op)
-    }
-
     /// A function that creates a scope and immediately awaits,
     /// _blocking the current thread_ for spawned futures to
     /// complete. The outputs of the futures are collected as a
@@ -58,10 +26,12 @@ impl<'a, T, Sp: Spawner<T> + Blocker + Default> Scope<'a, T, Sp> {
     where
         T: Send + 'static,
         Sp: Spawner<T> + Blocker,
-        F: FnOnce(&mut Scope<'a, T, Sp>) -> R,
+        F: AsyncFnOnce(&mut Scope<'a, T, Sp>) -> R,
     {
-        let (mut stream, block_output) = unsafe { Self::scope(f) };
-        let proc_outputs = Sp::default().block_on(stream.collect());
+        let mut scope = unsafe { Scope::create(Default::default()) };
+        let spawner = Sp::default();
+        let block_output = spawner.block_on(f(&mut scope));
+        let proc_outputs = spawner.block_on(scope.collect());
         (block_output, proc_outputs)
     }
 
@@ -86,10 +56,11 @@ impl<'a, T, Sp: Spawner<T> + Blocker + Default> Scope<'a, T, Sp> {
     pub async unsafe fn scope_and_collect<R, F>(f: F) -> (R, Vec<Sp::FutureOutput>)
     where
         T: Send + 'static,
-        F: FnOnce(&mut Scope<'a, T, Sp>) -> R,
+        F: AsyncFnOnce(&mut Scope<'a, T, Sp>) -> R,
     {
-        let (mut stream, block_output) = unsafe { Self::scope(f) };
-        let proc_outputs = stream.collect().await;
+        let mut scope = unsafe { Scope::create(Default::default()) };
+        let block_output = f(&mut scope).await;
+        let proc_outputs = scope.collect().await;
         (block_output, proc_outputs)
     }
 }

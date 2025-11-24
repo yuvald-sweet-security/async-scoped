@@ -24,31 +24,6 @@ cfg_async_std_or_else! {
 }
 
 test_fixtures! {
-    async fn test_scope() {
-        let not_copy = String::from("hello world!");
-        let not_copy_ref = &not_copy;
-
-        let (stream, _) = unsafe { Scope::scope(|s| {
-            for _ in 0..10 {
-                let proc = || async move {
-                    assert_eq!(not_copy_ref, "hello world!");
-                };
-                s.spawn(proc());
-            }
-        })};
-        // })};
-
-        // Uncomment this for compile error
-        // std::mem::drop(not_copy);
-
-        use futures::StreamExt;
-        let count = stream.collect::<Vec<_>>().await.len();
-
-        // Drop here is okay, as stream has been consumed.
-        std::mem::drop(not_copy);
-        assert_eq!(count, 10);
-    }
-
     // Test scope bounds: should allow any future with lifetime
     // larger than the scope's lifetime
     async fn scope_lifetime() {
@@ -59,7 +34,7 @@ test_fixtures! {
 
         let not_copy = String::from("hello world!");
         let not_copy_ref = &not_copy;
-        let ((), vals) = unsafe { Scope::scope_and_collect(|s| {
+        let ((), vals) = unsafe { Scope::scope_and_collect(async |s| {
             s.spawn(static_fut);
             for _ in 0..10 {
                 let proc = || async {
@@ -108,7 +83,7 @@ test_fixtures! {
         let not_copy = String::from("hello world!");
         let not_copy_ref = &not_copy;
 
-        let (_, vals) = unsafe { Scope::scope_and_collect(|s| {
+        let (_, vals) = unsafe { Scope::scope_and_collect(async |s| {
             for _ in 0..10 {
                 let proc = || async {
                     assert_eq!(not_copy_ref, "hello world!");
@@ -123,28 +98,12 @@ test_fixtures! {
         let not_copy = String::from("hello world!");
         let not_copy_ref = &not_copy;
 
-        let ((), vals) = Scope::scope_and_block(|s| {
+        let ((), vals) = Scope::scope_and_block(async |s| {
             for _ in 0..10 {
                 let proc = || async {
                     assert_eq!(not_copy_ref, "hello world!");
                 };
                 s.spawn(proc());
-            }
-        });
-
-        assert_eq!(vals.len(), 10);
-    }
-
-    async fn test_scope_and_block_spawn_blocking() {
-        let not_copy = String::from("hello world!");
-        let not_copy_ref = &not_copy;
-
-        let ((), vals) = Scope::scope_and_block(|s| {
-            for _ in 0..10 {
-                let proc = || {
-                    assert_eq!(not_copy_ref, "hello world!");
-                };
-                s.spawn_blocking(proc);
             }
         });
 
@@ -164,7 +123,7 @@ test_fixtures! {
                 future::pending::<()>(),
             ).await.is_err()
         }
-        let ((), items) = Scope::scope_and_block(|scope| {
+        let ((), items) = Scope::scope_and_block(async |scope| {
             scope.spawn_cancellable(proc(), || false);
         });
         assert_eq!(items.len(), 1);
@@ -186,7 +145,7 @@ test_fixtures! {
                 future::pending::<()>(),
             ).await.is_err()
         }
-        let ((), items) = Scope::scope_and_block(|scope| {
+        let ((), items) = Scope::scope_and_block(async |scope| {
             scope.spawn_cancellable(proc(), || false);
             scope.cancel();
         });
@@ -215,7 +174,7 @@ test_fixtures! {
             let start = Instant::now();
 
             let mut fut = Box::pin(
-                unsafe { Scope::scope_and_collect(|scope| {
+                unsafe { Scope::scope_and_collect(async |scope| {
                     scope.spawn_cancellable(async {
                         assert!(future::timeout(
                             Duration::from_millis(500),
@@ -309,7 +268,7 @@ test_fixtures! {
             eprintln!("nth({})", n);
             async move {
                 let mut result: usize = 0;
-                Scope::scope_and_block(|scope| {
+                Scope::scope_and_block(async |scope| {
                     if n > 0 {
                         scope.spawn(async {
                             let rec = { nth(n-1).boxed() }.await;
@@ -329,7 +288,7 @@ test_fixtures! {
         use std::future::pending;
         const N: u64 = 10;
 
-        let (_, r) = Scope::scope_and_block(|scope| {
+        let (_, r) = Scope::scope_and_block(async |scope| {
             for i in 0..N {
                 scope.spawn(async move {
                     let _ = async_std::future::timeout(
@@ -360,7 +319,7 @@ async fn test_async_deadlock_tokio() {
         if n == 0 {
             0
         } else {
-            TokioScope::scope_and_block(|scope| {
+            TokioScope::scope_and_block(async |scope| {
                 scope.spawn(async { nth(n - 1) }.boxed());
             })
             .1[0]

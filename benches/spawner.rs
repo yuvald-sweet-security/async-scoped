@@ -5,7 +5,7 @@ use async_scoped::{
 use futures::future::pending;
 use std::hint::black_box;
 
-fn spawn_and_collect<Sp: Spawner<usize> + Blocker>(s: &mut Scope<usize, Sp>) {
+async fn spawn_and_collect<'a, Sp: Spawner<usize> + Blocker>(s: &mut Scope<'a, usize, Sp>) {
     const INPUT_SIZE: usize = 1000000;
     const MAX_DELAY: usize = 1 << 8;
     for i in 0..INPUT_SIZE {
